@@ -16,7 +16,7 @@ boto3_login = {
 dynamodb = boto3.resource(**boto3_login)
 
 # Define the table name
-table_name = 'summary_operations_per_hour'
+table_name = 'Test_Table'
 source_table_name = 'EDW.fact.JDA_OutboundDetail'
 
 # Check if the table already exists
