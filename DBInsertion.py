@@ -1,69 +1,94 @@
-import pymysql
+import boto3
+from boto3.dynamodb.conditions import Key
+import pandas as pd
 from datetime import datetime
-from davinci.services.auth import get_secret
+from davinci.services.sql import get_sql
 
-# Database connection setup (replace with your actual database credentials)
-db_connection = pymysql.connect(
-    host=get_secret("DB_HOST"),
-    user=get_secret("DB_USER"),
-    password=get_secret("DB_PASSWORD"),
-    database=get_secret("DB_NAME")
-)
+# Initialize a session using Amazon DynamoDB
+boto3_login = {
+    "verify": False,
+    "service_name": 'dynamodb',
+    "region_name": 'us-east-1',
+    "aws_access_key_id": get_secret("AWS_ACCESS_KEY_ID"),
+    "aws_secret_access_key": get_secret("AWS_SECRET_ACCESS_KEY")
+}
+dynamodb = boto3.resource(**boto3_login)
 
-def get_baseline_values(cursor):
-    cursor.execute("SELECT MAX(Created) AS max_created FROM EDW.fact.JDA_OutboundDetail")
-    old_max_created = cursor.fetchone()['max_created']
+# Define the table name
+table_name = 'summary_operations_per_hour'
+source_table_name = 'EDW.fact.JDA_OutboundDetail'
 
-    cursor.execute("SELECT MAX(Modified) AS max_modified FROM EDW.fact.JDA_OutboundDetail")
-    old_max_modified = cursor.fetchone()['max_modified']
+# Check if the table already exists
+existing_tables = [table.name for table in dynamodb.tables.all()]
 
-    cursor.execute("SELECT COUNT(*) AS total_count FROM EDW.fact.JDA_OutboundDetail")
-    old_total_count = cursor.fetchone()['total_count']
-
-    return old_max_created, old_max_modified, old_total_count
-
-def get_update_counts(cursor, old_max_created, old_max_modified, old_total_count):
-    # Get the current max Created and max Modified datetime from the warehouse table
-    cursor.execute("SELECT MAX(Created) AS max_created FROM EDW.fact.JDA_OutboundDetail")
-    new_max_created = cursor.fetchone()['max_created']
-
-    cursor.execute("SELECT MAX(Modified) AS max_modified FROM EDW.fact.JDA_OutboundDetail")
-    new_max_modified = cursor.fetchone()['max_modified']
-
-    cursor.execute("SELECT COUNT(*) AS total_count FROM EDW.fact.JDA_OutboundDetail")
-    new_total_count = cursor.fetchone()['total_count']
-
-    # Calculate the number of created, modified, and deleted records
-    query_created = "SELECT COUNT(*) AS created_records FROM EDW.fact.JDA_OutboundDetail WHERE Created > %s"
-    cursor.execute(query_created, (old_max_created,))
-    created_records = cursor.fetchone()['created_records']
-
-    query_modified = "SELECT COUNT(*) AS modified_records FROM EDW.fact.JDA_OutboundDetail WHERE Modified > %s"
-    cursor.execute(query_modified, (old_max_modified,))
-    modified_records = cursor.fetchone()['modified_records']
-
-    deleted_records = old_total_count + created_records - new_total_count
-
-    return created_records, modified_records, deleted_records, new_total_count
-
-# Initialize baseline values
-with db_connection.cursor(pymysql.cursors.DictCursor) as cursor:
-    old_max_created, old_max_modified, old_total_count = get_baseline_values(cursor)
-
-# Get the updated counts
-with db_connection.cursor(pymysql.cursors.DictCursor) as cursor:
-    created_records, modified_records, deleted_records, new_total_count = get_update_counts(
-        cursor, old_max_created, old_max_modified, old_total_count
+if table_name not in existing_tables:
+    # Create the DynamoDB table
+    table = dynamodb.create_table(
+        TableName=table_name,
+        KeySchema=[
+            {
+                'AttributeName': 'TableName',
+                'KeyType': 'HASH'  # Partition key
+            },
+            {
+                'AttributeName': 'TimeStamp',
+                'KeyType': 'RANGE'  # Sort key
+            }
+        ],
+        AttributeDefinitions=[
+            {
+                'AttributeName': 'TableName',
+                'AttributeType': 'S'
+            },
+            {
+                'AttributeName': 'TimeStamp',
+                'AttributeType': 'N'
+            }
+        ],
+        ProvisionedThroughput={
+            'ReadCapacityUnits': 10,
+            'WriteCapacityUnits': 10
+        }
     )
 
-# Print results for verification
-print("Baseline Values:")
-print("Old Max Created:", old_max_created)
-print("Old Max Modified:", old_max_modified)
-print("Old Total Count:", old_total_count)
+    # Wait until the table exists.
+    table.meta.client.get_waiter('table_exists').wait(TableName=table_name)
 
-print("\nUpdated Counts:")
-print("Created Records:", created_records)
-print("Modified Records:", modified_records)
-print("Deleted Records:", deleted_records)
-print("New Total Count:", new_total_count)
+else:
+    # If the table already exists, get the table resource
+    table = dynamodb.Table(table_name)
+
+print("Table status:", table.table_status)
+
+# Fetch the baseline values
+baseline_created_query = "SELECT MAX(ID) AS max_id FROM EDW.fact.JDA_OutboundDetail;"
+baseline_modified_query = "SELECT MAX(Modified) AS max_modified FROM EDW.fact.JDA_OutboundDetail;"
+baseline_count_query = "SELECT COUNT(*) AS total_count FROM EDW.fact.JDA_OutboundDetail;"
+
+max_id_df = get_sql(baseline_created_query, db='EDW_SQL_DATABASE')
+max_modified_df = get_sql(baseline_modified_query, db='EDW_SQL_DATABASE')
+total_count_df = get_sql(baseline_count_query, db='EDW_SQL_DATABASE')
+
+max_id = max_id_df['max_id'].iloc[0]
+max_modified = pd.to_datetime(max_modified_df['max_modified'].iloc[0])
+total_count = total_count_df['total_count'].iloc[0]
+
+# Current timestamp
+current_timestamp = int(time.time())
+
+# Store values in DynamoDB
+table.put_item(
+    Item={
+        'TableName': source_table_name,
+        'TimeStamp': current_timestamp,
+        'MaxID': max_id,
+        'MaxModified': max_modified.isoformat(),
+        'TotalCount': total_count
+    }
+)
+
+# Print results for verification
+print("Initial Values Stored in DynamoDB:")
+print("Max ID:", max_id)
+print("Max Modified:", max_modified)
+print("Total Count:", total_count)
