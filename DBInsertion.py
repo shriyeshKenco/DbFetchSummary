@@ -3,6 +3,7 @@ from boto3.dynamodb.conditions import Key
 import pandas as pd
 from datetime import datetime
 from davinci.services.sql import get_sql
+from davinci.services.auth import get_secret
 
 # Initialize a session using Amazon DynamoDB
 boto3_login = {
