@@ -75,7 +75,7 @@ def get_baseline_values():
 
     max_created = pd.to_datetime(max_created_df['max_created'].iloc[0])
     max_modified = pd.to_datetime(max_modified_df['max_modified'].iloc[0])
-    total_count = total_count_df['total_count'].iloc[0]
+    total_count = int(total_count_df['total_count'].iloc[0])
 
     return max_created, max_modified, total_count
 
@@ -90,9 +90,9 @@ def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
     modified_df = get_sql(modified_query, db='EDW_SQL_DATABASE')
     current_total_count_df = get_sql(current_total_count_query, db='EDW_SQL_DATABASE')
 
-    created_records = created_df['created_records'].iloc[0]
-    modified_records = modified_df['modified_records'].iloc[0]
-    current_total_count = current_total_count_df['current_total_count'].iloc[0]
+    created_records = int(created_df['created_records'].iloc[0])
+    modified_records = int(modified_df['modified_records'].iloc[0])
+    current_total_count = int(current_total_count_df['current_total_count'].iloc[0])
 
     deleted_records = old_total_count + created_records - current_total_count
 
@@ -106,7 +106,7 @@ def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
     new_max_id_df = get_sql(new_max_id_query, db='EDW_SQL_DATABASE')
     new_max_modified_df = get_sql(new_max_modified_query, db='EDW_SQL_DATABASE')
 
-    new_max_id = new_max_id_df['max_id'].iloc[0]
+    new_max_id = int(new_max_id_df['max_id'].iloc[0])
     new_max_modified = pd.to_datetime(new_max_modified_df['max_modified'].iloc[0])
 
     # Put the data into the DynamoDB table
@@ -133,9 +133,9 @@ response = table.query(
 
 if response['Items']:
     prev_item = response['Items'][0]
-    old_max_id = prev_item['MaxID']
+    old_max_id = int(prev_item['MaxID'])
     old_max_modified = pd.to_datetime(prev_item['MaxModified'])
-    old_total_count = prev_item['TotalCount']
+    old_total_count = int(prev_item['TotalCount'])
     # Update the table with the latest counts
     update_dynamodb_table(old_max_id, old_max_modified, old_total_count)
 else:
@@ -143,7 +143,7 @@ else:
     old_max_created, old_max_modified, old_total_count = get_baseline_values()
     old_max_id_query = "SELECT MAX(ID) AS max_id FROM EDW.fact.JDA_OutboundDetail;"
     old_max_id_df = get_sql(old_max_id_query, db='EDW_SQL_DATABASE')
-    old_max_id = old_max_id_df['max_id'].iloc[0]
+    old_max_id = int(old_max_id_df['max_id'].iloc[0])
 
     # Initialize DynamoDB with the first set of values
     current_timestamp = int(time.time())
@@ -159,7 +159,6 @@ else:
             'TotalCount': old_total_count
         }
     )
-
 
 
 
