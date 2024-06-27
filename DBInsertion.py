@@ -82,8 +82,9 @@ def get_baseline_values():
 
 # Function to update DynamoDB table
 def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
+    old_max_modified_str = old_max_modified.strftime('%Y-%m-%d %H:%M:%S')
     created_query = f"SELECT COUNT(*) AS created_records FROM EDW.fact.JDA_OutboundDetail WHERE ID > {old_max_id};"
-    modified_query = f"SELECT COUNT(*) AS modified_records FROM EDW.fact.JDA_OutboundDetail WHERE Modified > '{old_max_modified.isoformat()}';"
+    modified_query = f"SELECT COUNT(*) AS modified_records FROM EDW.fact.JDA_OutboundDetail WHERE Modified > '{old_max_modified_str}';"
     current_total_count_query = "SELECT COUNT(*) AS current_total_count FROM EDW.fact.JDA_OutboundDetail;"
 
     created_df = get_sql(created_query, db='EDW_SQL_DATABASE')
@@ -97,7 +98,7 @@ def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
     deleted_records = old_total_count + created_records - current_total_count
 
     # Current timestamp
-    current_timestamp = int(time.time())
+    current_timestamp = int(datetime.now().strftime("%Y%m%d%H%M"))
 
     # Max ID and Modified timestamp for the current run
     new_max_id_query = "SELECT MAX(ID) AS max_id FROM EDW.fact.JDA_OutboundDetail;"
@@ -146,22 +147,43 @@ else:
     old_max_id = int(old_max_id_df['max_id'].iloc[0])
 
     # Initialize DynamoDB with the first set of values
-    current_timestamp = int(time.time())
-    table.put_item(
-        Item={
-            'TableName': source_table_name,
-            'TimeStamp': current_timestamp,
-            'CreatedRecords': 0,
-            'ModifiedRecords': 0,
-            'DeletedRecords': 0,
-            'MaxID': old_max_id,
-            'MaxModified': old_max_modified.isoformat(),
-            'TotalCount': old_total_count
-        }
-    )
+    current_timestamp = int(datetime.now().strftime("%Y%m%d%H%M"))
+    item = {
+        'TableName': source_table_name,
+        'TimeStamp': current_timestamp,
+        'CreatedRecords': 0,
+        'ModifiedRecords': 0,
+        'DeletedRecords': 0,
+        'MaxID': old_max_id,
+        'MaxModified': old_max_modified.isoformat(),
+        'TotalCount': old_total_count
+    }
 
+    # Print the data to be inserted for verification
+    print("Data to be inserted into DynamoDB (initial):")
+    for key, value in item.items():
+        print(f"{key}: {value}")
 
+    table.put_item(Item=item)
 
+    current_timestamp = int(datetime.now().strftime("%Y%m%d%H%M"))
+    item = {
+        'TableName': source_table_name,
+        'TimeStamp': current_timestamp,
+        'CreatedRecords': 0,
+        'ModifiedRecords': 0,
+        'DeletedRecords': 0,
+        'MaxID': old_max_id,
+        'MaxModified': old_max_modified.isoformat(),
+        'TotalCount': old_total_count
+    }
+
+    # Print the data to be inserted for verification
+    print("Data to be inserted into DynamoDB (initial):")
+    for key, value in item.items():
+        print(f"{key}: {value}")
+
+    table.put_item(Item=item)
 # Print results for verification
 print("Old Values:")
 print("Old Max ID:", old_max_id)
