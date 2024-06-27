@@ -84,7 +84,7 @@ def get_baseline_values():
 def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
     old_max_modified_str = old_max_modified.strftime('%Y-%m-%d %H:%M:%S')
     created_query = f"SELECT COUNT(*) AS created_records FROM EDW.fact.JDA_OutboundDetail WHERE ID > {old_max_id};"
-    modified_query = f"SELECT COUNT(*) AS modified_records FROM EDW.fact.JDA_OutboundDetail WHERE Modified > '{old_max_modified_str}';"
+    modified_query = f"SELECT COUNT(*) AS modified_records FROM EDW.fact.JDA_OutboundDetail WHERE Modified > '{old_max_modified_str}' AND ID < {old_max_id};"
     current_total_count_query = "SELECT COUNT(*) AS current_total_count FROM EDW.fact.JDA_OutboundDetail;"
 
     created_df = get_sql(created_query, db='EDW_SQL_DATABASE')
@@ -111,18 +111,23 @@ def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
     new_max_modified = pd.to_datetime(new_max_modified_df['max_modified'].iloc[0])
 
     # Put the data into the DynamoDB table
-    table.put_item(
-        Item={
-            'TableName': source_table_name,
-            'TimeStamp': current_timestamp,
-            'CreatedRecords': created_records,
-            'ModifiedRecords': modified_records,
-            'DeletedRecords': deleted_records,
-            'MaxID': new_max_id,
-            'MaxModified': new_max_modified.isoformat(),
-            'TotalCount': current_total_count
-        }
-    )
+    item = {
+        'TableName': source_table_name,
+        'TimeStamp': current_timestamp,
+        'CreatedRecords': created_records,
+        'ModifiedRecords': modified_records,
+        'DeletedRecords': deleted_records,
+        'MaxID': new_max_id,
+        'MaxModified': new_max_modified.isoformat(),
+        'TotalCount': current_total_count
+    }
+
+    # Print the data to be inserted for verification
+    print("Data to be inserted into DynamoDB:")
+    for key, value in item.items():
+        print(f"{key}: {value}")
+
+    table.put_item(Item=item)
 
 
 # Fetch previous values from DynamoDB
@@ -166,24 +171,6 @@ else:
 
     table.put_item(Item=item)
 
-    current_timestamp = int(datetime.now().strftime("%Y%m%d%H%M"))
-    item = {
-        'TableName': source_table_name,
-        'TimeStamp': current_timestamp,
-        'CreatedRecords': 0,
-        'ModifiedRecords': 0,
-        'DeletedRecords': 0,
-        'MaxID': old_max_id,
-        'MaxModified': old_max_modified.isoformat(),
-        'TotalCount': old_total_count
-    }
-
-    # Print the data to be inserted for verification
-    print("Data to be inserted into DynamoDB (initial):")
-    for key, value in item.items():
-        print(f"{key}: {value}")
-
-    table.put_item(Item=item)
 # Print results for verification
 print("Old Values:")
 print("Old Max ID:", old_max_id)
