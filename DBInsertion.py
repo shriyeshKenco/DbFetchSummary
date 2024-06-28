@@ -1,7 +1,7 @@
 import boto3
 from boto3.dynamodb.conditions import Key
 import pandas as pd
-from datetime import datetime
+from datetime import datetime,timedelta
 import time
 from davinci.services.sql import get_sql
 from davinci.services.auth import get_secret
@@ -63,6 +63,11 @@ else:
 print("Table status:", table.table_status)
 
 
+def round_up_seconds(dt):
+    if dt.microsecond > 0:
+        dt += timedelta(seconds=1)
+    return dt.replace(microsecond=0)
+
 # Function to fetch baseline values
 def get_baseline_values():
     baseline_created_query = "SELECT MAX(Created) AS max_created FROM EDW.fact.JDA_OutboundDetail;"
@@ -82,7 +87,8 @@ def get_baseline_values():
 
 # Function to update DynamoDB table
 def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
-    old_max_modified_str = old_max_modified.strftime('%Y-%m-%d %H:%M:%S')
+    old_max_modified = round_up_seconds(old_max_modified)
+    old_max_modified_str = old_max_modified.strftime('%Y-%m-%dT%H:%M:%S')
     created_query = f"SELECT COUNT(*) AS created_records FROM EDW.fact.JDA_OutboundDetail WHERE ID > {old_max_id};"
     modified_query = f"SELECT COUNT(*) AS modified_records FROM EDW.fact.JDA_OutboundDetail WHERE Modified > '{old_max_modified_str}' AND ID < {old_max_id};"
     current_total_count_query = "SELECT COUNT(*) AS current_total_count FROM EDW.fact.JDA_OutboundDetail;"
@@ -109,6 +115,7 @@ def update_dynamodb_table(old_max_id, old_max_modified, old_total_count):
 
     new_max_id = int(new_max_id_df['max_id'].iloc[0])
     new_max_modified = pd.to_datetime(new_max_modified_df['max_modified'].iloc[0])
+    new_max_modified = round_up_seconds(new_max_modified)
 
     # Put the data into the DynamoDB table
     item = {
@@ -136,6 +143,7 @@ response = table.query(
     ScanIndexForward=False,  # Descending order
     Limit=1
 )
+print(response)
 
 if response['Items']:
     prev_item = response['Items'][0]
